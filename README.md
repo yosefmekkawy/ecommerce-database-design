@@ -1,6 +1,7 @@
 # Ecommerce Database Design
 
 
+
 # 🧾 Database Schema Script
 ----------
 
@@ -114,6 +115,7 @@ erDiagram
         int order_id PK
         int customer_id FK
         timestamp order_date
+        numeric total_price
     }
 
     Order_details {
