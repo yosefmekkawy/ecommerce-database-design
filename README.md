@@ -80,8 +80,6 @@ CREATE TABLE Order_details (
 - **Product → Order Detail:** One-to-Many  
   *(Participation: Partial – Total)*
 
-- **Order ↔ Product (Conceptual):** Many-to-Many  
-  *(Implemented via `Order_details`)*
 
 ----------
 
@@ -97,10 +95,10 @@ erDiagram
     Product {
         int product_id PK
         int category_id FK
-        varchar name
-        text description
-        numeric price
-        int stock_quantity
+        varchar product_name
+        text product_description
+        numeric product_price
+        int product_stock_quantity
     }
 
     Customer {
@@ -130,8 +128,6 @@ erDiagram
     Customer ||--o{ Order : "One-to-Many"
     Order ||--o{ Order_details : "One-to-Many"
     Product ||--o{ Order_details : "One-to-Many"
-
-    Order }o--o{ Product : "Many-to-Many (via Order_details)"
 
 ```
 
@@ -187,4 +183,116 @@ CREATE TABLE Customer_Order_Summary (
     total_spent NUMERIC(12,2) DEFAULT 0,
     last_order_date TIMESTAMP
 );
+```
+# Search Products by Name or Description
+```sql
+SELECT *
+FROM Product
+WHERE product_name LIKE '%camera%'
+   OR product_description LIKE '%camera%';
+```
+
+# Suggest popular products in the same category for the same author excluding the Purchsed product
+```sql
+    SELECT p.product_id , p.name , p.Category
+    FROM Product p
+    WHERE p.Category = (
+        Select DISTINCT Category
+        From Proudct
+        WHERE product_id in (
+            select product_id
+            From order_details
+            Where Customer_id = <customer_id>
+            )
+        )
+      AND p.author = (
+        SELECT author
+        FROM Products
+        WHERE product_id IN (
+            SELECT product_id
+            FROM CustomerHistory
+            WHERE customer_id = <customer_id>
+        )
+    )
+      AND p.product_id NOT IN (
+        SELECT product_id
+        FROM CustomerHistory
+        WHERE customer_id = <customer_id>
+    );
+```
+
+# Optimizing Product Search with Full Text Search
+```sql
+    CREATE INDEX product_search_idx
+    ON Product
+    USING GIN (
+    to_tsvector('english', product_name || ' ' || product_description)
+    );
+
+    SELECT *
+    FROM Product
+    WHERE to_tsvector('english', product_name || ' ' || product_description)
+                      @@ plainto_tsquery('english', 'camera');
+
+```
+
+# Trigger to Create a sale history  when a new order is made in the "Orders" table
+```sql
+
+    CREATE OR REPLACE FUNCTION create_sale_history()
+    RETURNS TRIGGER AS $$
+    BEGIN
+    INSERT INTO Sale_History (
+        order_id,
+        customer_id,
+        product_id,
+        order_date,
+        quantity,
+        total_amount
+    )
+    SELECT
+        NEW.order_id,
+        NEW.customer_id,
+        od.product_id,
+        NEW.order_date,
+        od.quantity,
+        NEW.total_amount
+    FROM Order_details od
+    WHERE od.order_id = NEW.order_id;
+    
+    RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql;
+
+       
+       
+    CREATE TRIGGER trg_create_sale_history
+        AFTER INSERT ON "Order"
+        FOR EACH ROW
+        EXECUTE FUNCTION create_sale_history();
+
+```
+
+# Transaction Lock Queries on Product Table
+```sql
+    -- lock the quantity --
+    BEGIN;
+    
+    SELECT quantity
+    FROM Product
+    WHERE product_id = 211
+        FOR UPDATE;
+    
+    COMMIT;
+
+    -- lock the row --
+    BEGIN;
+    
+    SELECT *
+    FROM product
+    WHERE Product_id = 211
+        FOR UPDATE;
+    
+    COMMIT;
+
 ```
